@@ -1,32 +1,13 @@
 import re
 import os
 import json
+import csv
+import time
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from google import genai
-from datetime import datetime, timedelta
 
 ROOM_PATTERN = r"^[A-D][1-4](0[1-9]|1[0-9]|20)$"
-
-def is_valid(room):
-    if room is None:
-        return False
-    return re.match(ROOM_PATTERN, room) is not None
-
-print(is_valid("B214"))
-print(is_valid("E210"))
-print(is_valid("A25"))
-print(is_valid("C321"))
-print(is_valid(None))
-
-def check_room(room, complaint_text):
-    if not is_valid(room):
-        return None
-    if room not in complaint_text:
-        return None
-    return room
-
-print(check_room("B214", "Fan not working in B214"))
-print(check_room("B214", "Fan not working in the room"))
 
 SAFETY_WORDS = ["spark", "shock", "overflowing", "burning smell", "near the switch"]
 
@@ -39,6 +20,24 @@ TEAMS = {
     "other": "Warden Office",
 }
 
+load_dotenv()
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+
+def is_valid(room):
+    if room is None:
+        return False
+    return re.match(ROOM_PATTERN, room) is not None
+
+
+def check_room(room, complaint_text):
+    if not is_valid(room):
+        return None
+    if room not in complaint_text:
+        return None
+    return room
+
+
 def apply_safety_net(issue, complaint_text, llm_urgent):
     text = complaint_text.lower()
     urgent = llm_urgent
@@ -50,8 +49,10 @@ def apply_safety_net(issue, complaint_text, llm_urgent):
         urgent = True
     return issue, urgent
 
+
 def assign(issue):
     return TEAMS.get(issue, "Warden Office")
+
 
 def due_date(urgent, opened_date):
     start = datetime.strptime(opened_date, "%Y-%m-%d")
@@ -59,12 +60,7 @@ def due_date(urgent, opened_date):
         return start.strftime("%Y-%m-%d")
     return (start + timedelta(days=2)).strftime("%Y-%m-%d")
 
-print(apply_safety_net("plumbing", "Sparks from switch", False))
-print(assign("electrical"))
-print(due_date(False, "2026-11-05"))
-load_dotenv()
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-print("Key loaded:", os.getenv("GEMINI_API_KEY") is not None)
+
 def classify(complaint_text):
     prompt = (
         "Extract from this hostel complaint: room (like B214 or null), "
@@ -79,8 +75,7 @@ def classify(complaint_text):
         return json.loads(text)
     except json.JSONDecodeError:
         return None
-import csv
-import time
+
 
 def process_all():
     tickets = {}
@@ -99,8 +94,10 @@ def process_all():
             cid, cdate, text = row["id"], row["date"], row["complaint"]
             try:
                 result = classify(text)
+                time.sleep(13)
             except Exception as error:
                 print("AI call failed:", error)
+                time.sleep(13)
                 result = None
             if result is None:
                 needs_info.append([cid, cdate, text, "AI reply unreadable"])
@@ -127,7 +124,6 @@ def process_all():
                 tickets[key] = t
                 status = "new_ticket"
             results.append([cid, status, t["ticket"]])
-            time.sleep(5)
 
     with open("work_orders.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -164,5 +160,6 @@ def process_all():
                 f.write(f"  {t['room']} ({t['issue']}): {len(t['complaints'])} complaints\n")
 
     print("Done. Written: work_orders.csv, results.csv, needs_info.csv, summary.txt")
+
 
 process_all()
